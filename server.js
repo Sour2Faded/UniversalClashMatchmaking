@@ -2,92 +2,64 @@ const express = require("express");
 const app = express();
 app.use(express.json());
 
-let games = []; 
-// Game schema: 
-// { id, hostIp, players: [{id, name, ready}], maxPlayers, createdAt }
+let lobbies = []; 
+// Lobby schema: { id, hostId, hostName, maxPlayers, players: [{id, name}] }
 
-function cleanupExpiredGames() {
+function cleanupOldLobbies() {
   const now = Date.now();
-  games = games.filter(g => now - g.createdAt < 1000 * 60 * 30); // 30 min timeout
+  lobbies = lobbies.filter(l => now - l.createdAt < 1000 * 60 * 30); // 30 min timeout
 }
 
-// Create/host a game
+// Create a lobby
 app.post("/host", (req, res) => {
-  const { hostIp, maxPlayers, playerId, playerName } = req.body;
+  const { hostId, hostName, maxPlayers } = req.body;
   const id = Date.now().toString();
 
-  const newGame = {
+  const newLobby = {
     id,
-    hostIp,
+    hostId,
+    hostName,
     maxPlayers,
-    players: [{ id: playerId, name: playerName, ready: false }],
+    players: [{ id: hostId, name: hostName }],
     createdAt: Date.now()
   };
 
-  games.push(newGame);
-  res.json({ success: true, gameId: id });
+  lobbies.push(newLobby);
+  res.json({ success: true, lobbyId: id });
 });
 
-// List open games
+// List open lobbies
 app.get("/list", (req, res) => {
-  cleanupExpiredGames();
-  res.json(games.map(g => ({
-    id: g.id,
-    hostIp: g.hostIp,
-    currentPlayers: g.players.length,
-    maxPlayers: g.maxPlayers
+  cleanupOldLobbies();
+  res.json(lobbies.map(l => ({
+    id: l.id,
+    hostName: l.hostName,
+    currentPlayers: l.players.length,
+    maxPlayers: l.maxPlayers
   })));
 });
 
-// Join a game
+// Join a lobby
 app.post("/join", (req, res) => {
-  const { gameId, playerId, playerName } = req.body;
-  const game = games.find(g => g.id === gameId);
+  const { lobbyId, playerId, playerName } = req.body;
+  const lobby = lobbies.find(l => l.id === lobbyId);
 
-  if (!game) return res.json({ success: false, error: "Game not found" });
-  if (game.players.find(p => p.id === playerId))
-    return res.json({ success: false, error: "Player already in game" });
-  if (game.players.length >= game.maxPlayers)
-    return res.json({ success: false, error: "Game is full" });
+  if (!lobby) return res.json({ success: false, error: "Lobby not found" });
+  if (lobby.players.find(p => p.id === playerId))
+    return res.json({ success: false, error: "Player already in lobby" });
+  if (lobby.players.length >= lobby.maxPlayers)
+    return res.json({ success: false, error: "Lobby is full" });
 
-  game.players.push({ id: playerId, name: playerName, ready: false });
-
-  res.json({ success: true, hostIp: game.hostIp, gameFull: game.players.length >= game.maxPlayers });
+  lobby.players.push({ id: playerId, name: playerName });
+  res.json({ success: true });
 });
 
-// Set ready state
-app.post("/ready", (req, res) => {
-  const { gameId, playerId, ready } = req.body;
-  const game = games.find(g => g.id === gameId);
-  if (!game) return res.json({ success: false, error: "Game not found" });
+// Get list of players in a lobby
+app.get("/players/:lobbyId", (req, res) => {
+  const lobby = lobbies.find(l => l.id === req.params.lobbyId);
+  if (!lobby) return res.json({ success: false, error: "Lobby not found" });
 
-  const player = game.players.find(p => p.id === playerId);
-  if (!player) return res.json({ success: false, error: "Player not found in game" });
-
-  player.ready = ready;
-
-  // Check if all players are ready
-  const allReady = game.players.length === game.maxPlayers &&
-                   game.players.every(p => p.ready);
-
-  if (allReady) {
-    // Game is starting → remove from lobby
-    games = games.filter(g => g.id !== gameId);
-    return res.json({ success: true, gameStart: true, hostIp: game.hostIp });
-  }
-
-  res.json({ success: true, gameStart: false });
-});
-
-// Get player list for a game
-app.get("/players/:gameId", (req, res) => {
-  const game = games.find(g => g.id === req.params.gameId);
-  if (!game) return res.json({ success: false, error: "Game not found" });
-
-  res.json({
-    success: true,
-    players: game.players
-  });
+  res.json({ success: true, players: lobby.players });
 });
 
 const port = process.env.PORT || 3000;

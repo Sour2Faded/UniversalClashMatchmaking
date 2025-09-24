@@ -3,7 +3,7 @@ const app = express();
 app.use(express.json());
 
 let lobbies = []; 
-// Lobby schema: { id, hostId, hostName, maxPlayers, players: [{id, name}] }
+// Lobby schema: { id, hostId, hostName, maxPlayers, players: [{id, name}], hostIp }
 
 function cleanupOldLobbies() {
   const now = Date.now();
@@ -21,17 +21,19 @@ app.post("/host", (req, res) => {
     hostName,
     maxPlayers,
     players: [{ id: hostId, name: hostName }],
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    hostIp: null
   };
 
   lobbies.push(newLobby);
   res.json({ success: true, lobbyId: id });
 });
 
-// List open lobbies
+// List open lobbies (exclude full lobbies)
 app.get("/list", (req, res) => {
   cleanupOldLobbies();
-  res.json(lobbies.map(l => ({
+  const openLobbies = lobbies.filter(l => l.players.length < l.maxPlayers);
+  res.json(openLobbies.map(l => ({
     id: l.id,
     hostName: l.hostName,
     currentPlayers: l.players.length,
@@ -51,15 +53,47 @@ app.post("/join", (req, res) => {
     return res.json({ success: false, error: "Lobby is full" });
 
   lobby.players.push({ id: playerId, name: playerName });
+
+  // Remove lobby if full
+  if (lobby.players.length >= lobby.maxPlayers) {
+    lobbies = lobbies.filter(l => l.id !== lobbyId);
+  }
+
   res.json({ success: true });
 });
 
-// Get list of players in a lobby
-app.get("/players/:lobbyId", (req, res) => {
-  const lobby = lobbies.find(l => l.id === req.params.lobbyId);
+// Remove a player (host or any player leaving)
+app.post("/leave", (req, res) => {
+  const { lobbyId, playerId } = req.body;
+  const lobby = lobbies.find(l => l.id === lobbyId);
   if (!lobby) return res.json({ success: false, error: "Lobby not found" });
 
-  res.json({ success: true, players: lobby.players });
+  lobby.players = lobby.players.filter(p => p.id !== playerId);
+
+  // Remove lobby if host left or no players remain
+  if (lobby.hostId === playerId || lobby.players.length === 0) {
+    lobbies = lobbies.filter(l => l.id !== lobbyId);
+    return res.json({ success: true, lobbyRemoved: true });
+  }
+
+  res.json({ success: true, lobbyRemoved: false });
+});
+
+// Update host IP
+app.post("/updateIp", (req, res) => {
+  const { lobbyId, hostIp } = req.body;
+  const lobby = lobbies.find(l => l.id === lobbyId);
+  if (!lobby) return res.json({ success: false, error: "Lobby not found" });
+  lobby.hostIp = hostIp;
+  res.json({ success: true });
+});
+
+// Get host IP
+app.get("/getHostIp", (req, res) => {
+  const { lobbyId } = req.query;
+  const lobby = lobbies.find(l => l.id === lobbyId);
+  if (!lobby) return res.json({ success: false, error: "Lobby not found" });
+  res.json({ hostIp: lobby.hostIp || "" });
 });
 
 const port = process.env.PORT || 3000;

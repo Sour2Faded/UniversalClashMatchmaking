@@ -115,5 +115,51 @@ app.get("/list", (req, res) => {
   })));
 });
 
+app.post("/findMatch", (req, res) => {
+  const { playerId, playerName, maxPlayers = 2 } = req.body;
+  
+  cleanupOldLobbies();
+  
+  // Try to find an existing lobby with available slots
+  let availableLobby = lobbies.find(l => l.players.length < l.maxPlayers);
+  
+  if (availableLobby) {
+    // Join existing lobby
+    if (availableLobby.players.find(p => p.id === playerId)) {
+      return res.json({ success: false, error: "Player already in lobby" });
+    }
+    
+    availableLobby.players.push({ id: playerId, name: playerName, ready: false });
+    
+    res.json({ 
+      success: true, 
+      lobbyId: availableLobby.id,
+      isHost: false,
+      message: "Joined existing match"
+    });
+  } else {
+    // Create new lobby
+    const id = Date.now().toString();
+    const newLobby = {
+      id,
+      hostId: playerId,
+      hostName: playerName,
+      maxPlayers,
+      players: [{ id: playerId, name: playerName, ready: false }],
+      createdAt: Date.now(),
+      hostIp: null
+    };
+    
+    lobbies.push(newLobby);
+    
+    res.json({ 
+      success: true, 
+      lobbyId: id,
+      isHost: true,
+      message: "Created new match"
+    });
+  }
+});
+
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log(`✅ Matchmaking server running on port ${port}`));
